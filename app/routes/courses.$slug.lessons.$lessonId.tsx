@@ -55,6 +55,13 @@ import { resolveCountry } from "~/lib/country.server";
 import { checkPppAccess, COUNTRIES } from "~/lib/ppp";
 import { findPurchase } from "~/services/purchaseService";
 import { parseFormData, parseParams } from "~/lib/validation";
+import {
+  getCommentsForLesson,
+  getCommentById,
+  createComment,
+  deleteComment,
+} from "~/services/commentService";
+import { LessonComments } from "~/components/lesson-comments";
 
 const lessonParamsSchema = z.object({
   slug: z.string().min(1),
@@ -172,6 +179,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     }
   }
 
+  const isInstructorOfCourse = currentUserId === course.instructorId;
+  const canViewComments = enrolled || isInstructorOfCourse;
+  const comments = canViewComments ? getCommentsForLesson(lessonId) : [];
+
   // PPP Access Guard
   let pppBlocked = false;
   let pppBlockedCountry: string | null = null;
@@ -281,6 +292,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    comments,
+    isInstructorOfCourse,
   };
 }
 
@@ -329,6 +342,37 @@ export async function action({ params, request }: Route.ActionArgs) {
     }
 
     return { quizResult: result };
+  }
+
+  if (intent === "add-comment") {
+    const isInstructorOfCourse = currentUserId === course.instructorId;
+    const enrolled = isUserEnrolled(currentUserId, course.id);
+    if (!enrolled && !isInstructorOfCourse) {
+      throw data("You must be enrolled to comment", { status: 403 });
+    }
+    const body = formData.get("body");
+    if (typeof body !== "string" || !body.trim()) {
+      return data({ error: "Comment cannot be empty" }, { status: 400 });
+    }
+    createComment(lessonId, currentUserId, body.trim());
+    return { success: true };
+  }
+
+  if (intent === "delete-comment") {
+    const commentId = Number(formData.get("commentId"));
+    if (isNaN(commentId)) {
+      throw data("Invalid comment ID", { status: 400 });
+    }
+    const comment = getCommentById(commentId);
+    if (!comment || comment.lessonId !== lessonId) {
+      throw data("Comment not found", { status: 404 });
+    }
+    const isInstructorOfCourse = currentUserId === course.instructorId;
+    if (comment.userId !== currentUserId && !isInstructorOfCourse) {
+      throw data("Not authorized to delete this comment", { status: 403 });
+    }
+    deleteComment(commentId);
+    return { success: true };
   }
 
   throw data("Invalid action", { status: 400 });
@@ -382,6 +426,8 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    comments,
+    isInstructorOfCourse,
   } = loaderData;
   const [autoplay, toggleAutoplay] = useAutoplay();
   const fetcher = useFetcher({ key: `mark-complete-${lesson.id}` });
@@ -639,6 +685,15 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
               </Link>
             )}
           </div>
+
+          {/* Comments */}
+          {currentUserId && (enrolled || isInstructorOfCourse) && (
+            <LessonComments
+              comments={comments}
+              currentUserId={currentUserId}
+              canDeleteAny={isInstructorOfCourse}
+            />
+          )}
         </div>
       </div>
     </div>

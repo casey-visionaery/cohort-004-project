@@ -18,6 +18,13 @@ import { AlertTriangle, ArrowLeft, ClipboardList, ExternalLink, Github, Save } f
 import { data, isRouteErrorResponse } from "react-router";
 import { z } from "zod";
 import { parseFormData, parseParams } from "~/lib/validation";
+import {
+  getCommentsForLesson,
+  getCommentById,
+  createComment,
+  deleteComment,
+} from "~/services/commentService";
+import { LessonComments } from "~/components/lesson-comments";
 
 const instructorLessonParamsSchema = z.object({
   courseId: z.coerce.number().int(),
@@ -88,8 +95,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const quiz = getQuizByLessonId(lessonId);
+  const comments = getCommentsForLesson(lessonId);
 
-  return { course, lesson, module: mod, quiz };
+  return { course, lesson, module: mod, quiz, comments, currentUserId };
 }
 
 export async function action({ params, request }: Route.ActionArgs) {
@@ -126,6 +134,30 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "add-comment") {
+    const body = formData.get("body");
+    if (typeof body !== "string" || !body.trim()) {
+      return data({ error: "Comment cannot be empty" }, { status: 400 });
+    }
+    createComment(lessonId, currentUserId, body.trim());
+    return { success: true };
+  }
+
+  if (intent === "delete-comment") {
+    const commentId = Number(formData.get("commentId"));
+    if (isNaN(commentId)) {
+      throw data("Invalid comment ID", { status: 400 });
+    }
+    const comment = getCommentById(commentId);
+    if (!comment || comment.lessonId !== lessonId) {
+      throw data("Comment not found", { status: 404 });
+    }
+    deleteComment(commentId);
+    return { success: true };
+  }
+
   const parsed = parseFormData(formData, updateLessonSchema);
 
   if (!parsed.success) {
@@ -150,7 +182,7 @@ export async function action({ params, request }: Route.ActionArgs) {
 export default function InstructorLessonEditor({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, lesson, module: mod, quiz } = loaderData;
+  const { course, lesson, module: mod, quiz, comments, currentUserId } = loaderData;
   const fetcher = useFetcher();
 
   const [content, setContent] = useState(lesson.content ?? "");
@@ -391,6 +423,13 @@ export default function InstructorLessonEditor({
             </span>
           )}
         </div>
+
+        {/* Student Comments */}
+        <LessonComments
+          comments={comments}
+          currentUserId={currentUserId}
+          canDeleteAny={true}
+        />
       </div>
     </div>
   );
