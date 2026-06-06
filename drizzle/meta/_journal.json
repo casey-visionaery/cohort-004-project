@@ -29,6 +29,13 @@
       "when": 1780778349725,
       "tag": "0003_absent_joystick",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1780780415226,
+      "tag": "0004_chunky_alice",
+      "breakpoints": true
     }
   ]
 }
